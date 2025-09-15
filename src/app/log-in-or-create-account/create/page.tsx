@@ -8,6 +8,7 @@ import axios from "axios";
 
 export default function Page() {
   const [email, setEmail] = useState("");
+  const [name, setName] = useState("");
   const searchParams = useSearchParams();
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -21,23 +22,27 @@ export default function Page() {
   }, [searchParams]);
 
   const handleContinue = async (e: React.FormEvent) => {
-    e.preventDefault();
+  e.preventDefault();
 
-    try {
-      const res = await axios.post("/api/auth/signup", {
-        email,
-        password,
-      });
+  try {
+    const res = await axios.post("/api/auth/signup", {
+      name,      // ✅ include name
+      email,
+      password,
+    });
 
-      if (res.data.success) {
-        router.push(`/log-in-or-create-account//verify?email=${encodeURIComponent(email)}`);
-      } else {
-        alert("Error: " + res.data.error);
-      }
-    } catch (err: any) {
-      alert("Signup failed: " + err.message);
+    if (res.data.success) {
+      router.push(
+        `/log-in-or-create-account/verify?email=${encodeURIComponent(email)}&name=${encodeURIComponent(name)}`
+      );
+    } else {
+      alert("Error: " + res.data.error);
     }
-  };
+  } catch (err: any) {
+    alert("Signup failed: " + err.message);
+  }
+};
+
 
   // ✅ Password validation
   const validations = {
@@ -70,6 +75,16 @@ export default function Page() {
           className="w-full max-w-md flex flex-col gap-4"
         >
           <input
+            type="text"
+            placeholder="Enter your name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            required
+            autoFocus
+            className="w-full px-4 py-3 rounded-xl bg-gray-800 border border-gray-700 placeholder-gray-400 text-white outline-none focus:ring-2 focus:ring-indigo-500 transition"
+          />
+
+          <input
             type="email"
             placeholder="Enter your email address"
             value={email}
@@ -86,7 +101,6 @@ export default function Page() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
-              autoFocus
               className="w-full px-4 py-3 rounded-xl bg-gray-800 border border-gray-700 placeholder-gray-400 text-white outline-none focus:ring-2 focus:ring-indigo-500 transition pr-12"
             />
             <button

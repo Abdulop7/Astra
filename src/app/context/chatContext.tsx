@@ -1,125 +1,138 @@
 // app/context/chatContext.tsx
 "use client";
-import { createContext, useContext, useState, useCallback } from "react";
+import { getUserPool } from "@/lib/cognito";
+import { createContext, useContext, useState, useCallback, useEffect } from "react";
 
-type Message = { role: "user" | "bot"; content: string; isLoading?: boolean };
-type Chat = { id: string; messages: Message[] };
+interface CognitoUserInfo {
+  userId: string; // sub
+  name?: string;
+  email?: string;
+}
+
+type ChatCollection = { chatId: string; title: string };
 
 const ChatContext = createContext<any>(null);
 
 export function ChatProvider({ children }: { children: React.ReactNode }) {
-    const [activeChatId, setActiveChatId] = useState<string | null>(() => {
-        if (typeof window !== "undefined") {
-            return localStorage.getItem("astra_chat_active");
+  const pool = getUserPool();
+
+  const [collection, setCollection] = useState<ChatCollection[]>([]);
+  const [createdChats, setCreatedChats] = useState<Set<string>>(new Set());
+  const [userInfo, setUserInfo] = useState<CognitoUserInfo | null>(null);
+  
+
+  function getCurrentUserId(): Promise<CognitoUserInfo | null> {
+    return new Promise((resolve) => {
+      const currentUser = pool.getCurrentUser();
+
+      if (!currentUser) {
+        resolve(null);
+        return;
+      }
+
+      currentUser.getSession((err: any, session: any) => {
+        if (err || !session.isValid()) {
+          resolve(null);
+          return;
         }
-        return null;
-    });
 
-    const [chats, setChats] = useState<Chat[]>(() => {
-        // ✅ Load existing chats from localStorage
-        if (typeof window !== "undefined") {
-            const saved = localStorage.getItem("astra_chat_chats");
-            return saved ? JSON.parse(saved) : [];
-        }
-        return [];
-    });
-    
-
-    const ensureChatExists = useCallback(
-        (id: string) => {
-            setChats((prev) => {
-                if (prev.some((c) => c.id === id)) return prev;
-                return [...prev, { id, messages: [] }];
-            });
-        },
-        [setChats]
-    );
-
-    const setActiveChat = useCallback((id: string) => {
-        setActiveChatId(id);
-    }, []);
-
-    const sendMessage = useCallback(
-  async (chatId: string, input: string) => {
-    if (!input.trim()) return;
-
-    // 1️⃣ Add user message + bot placeholder
-    setChats((prev) => {
-      const updated = prev.map((chat) =>
-        chat.id === chatId
-          ? {
-              ...chat,
-              messages: [
-                ...chat.messages,
-                { role: "user", content: input },
-                { role: "bot", content: "", isLoading: true }, // placeholder
-              ],
-            }
-          : chat
-      );
-
-      // ✅ Update localStorage here
-      localStorage.setItem("astra_chat_chats", JSON.stringify(updated));
-
-      return updated;
-    });
-
-    // 2️⃣ Call API
-    let botResponse = "No response";
-    try {
-      const res = await fetch("/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: input }),
+        const payload = session.getIdToken().decodePayload();
+        resolve({
+          userId: payload.sub,
+          name: payload.name,    // if available
+          email: payload.email,  // usually available if you set it in the pool
+        });
       });
-      const data = await res.json();
-      botResponse = data.choices?.[0]?.message?.content || "No response";
-    } catch (err) {
-      console.error("sendMessage error:", err);
-      botResponse = "Error: failed to fetch response";
-    }
+    });
+  }
 
-    // 3️⃣ Replace placeholder with real bot response
-    setChats((prev) => {
-      const updated = prev.map((chat) =>
-        chat.id === chatId
-          ? {
-              ...chat,
-              messages: [
-                ...chat.messages.slice(0, -1), // remove placeholder
-                { role: "bot", content: botResponse },
-              ],
-            }
-          : chat
+  useEffect(() => {
+    getCurrentUserId().then((info) => {
+      setUserInfo(info || null);
+    });
+  }, []);
+
+  const fetchChatCollection = useCallback(async () => {
+    try {
+      const userData = await getCurrentUserId(); // ✅ Cognito userId
+      const userId = userData?.userId
+
+      const res = await fetch(
+        "https://8dyke468il.execute-api.ap-south-2.amazonaws.com/getCollection",
+        {
+          method: "POST",
+          body: JSON.stringify({ userId }),
+        }
       );
 
-      // ✅ Update localStorage here as well
-      localStorage.setItem("astra_chat_chats", JSON.stringify(updated));
+      if (!res.ok) throw new Error("Failed to fetch chat collection");
 
-      return updated;
-    });
-  },
-  [setChats]
-);
+      const data = await res.json();
+      const chats = data.chats || [];
+
+      setCollection((prev) => {
+        const map = new Map<string, { chatId: string; title: string }>();
+
+        // Add previous collection first
+        prev.forEach((chat) => map.set(chat.chatId, chat));
+
+        // Add new chats, preserve existing title if incoming one is undefined
+        chats.forEach((chat) => {
+          const existing = map.get(chat.chatId);
+          const title = chat.title || existing?.title || "Untitled Chat";
+          map.set(chat.chatId, { chatId: chat.chatId, title });
+        });
+
+        return Array.from(map.values());
+      });
+    } catch (err) {
+      console.error("❌ fetchChatCollection error:", err);
+      setCollection([]);
+    }
+  }, []);
 
 
 
-    return (
-        <ChatContext.Provider
-            value={{
-                chats,
-                activeChatId,
-                setActiveChat,
-                ensureChatExists,
-                sendMessage,
-                setChats
-            }}
-        >
-            {children}
-        </ChatContext.Provider>
-    );
+
+  function addChat(newChat: { chatId: string; title: string }, options?: { checkExists?: boolean }) {
+
+    if (!newChat || !newChat.chatId) {
+      console.warn("⚠️ Attempted to add invalid chat:", newChat);
+      return false;
+    }
+    if (options?.checkExists) {
+      const exists = collection.some(c => c.chatId === newChat.chatId);
+      if (exists) return false; // ❌ Already exists, skip
+    }
+    setCollection(prev => [...prev, newChat]);
+    return true; // ✅ Chat added
+  }
+
+
+  const markChatAsCreated = (chatId: string) => {
+    setCreatedChats(prev => new Set([...prev, chatId]));
+  };
+
+  const isChatCreated = (chatId: string) => createdChats.has(chatId);
+
+
+  return (
+    <ChatContext.Provider
+      value={{
+        collection,
+        fetchChatCollection,
+        getCurrentUserId,
+        addChat,
+        markChatAsCreated,
+        isChatCreated,
+        userInfo
+      }}
+    >
+      {children}
+    </ChatContext.Provider>
+  );
 }
 
 export function useChat() {
-    return useContext(ChatContext);
+  return useContext(ChatContext);
 }

@@ -1,7 +1,7 @@
 "use client"
 
 // components/Sidebar.tsx
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import {
@@ -13,20 +13,47 @@ import {
   XMarkIcon,
 } from "@heroicons/react/24/outline";
 import { useChat } from "@/app/context/chatContext";
-import { useRouter } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
+import { handleLogout } from "@/lib/cognito";
 
-interface SidebarProps {
-  email: string;
-  profilePicUrl?: string;
-}
-
-export default function Sidebar({ email, profilePicUrl }: SidebarProps) {
+export default function Sidebar() {
   const [isOpen, setIsOpen] = useState(false); // mobile
   const [isMinimized, setIsMinimized] = useState(false); // desktop
   const [hoveringLogo, setHoveringLogo] = useState(false);
-
+  const { collection,userInfo, fetchChatCollection } = useChat();
+  const [activeChatId, setActiveChatId] = useState()
+  const [showProfileModal, setShowProfileModal] = useState(false);
+  const params = useParams();
   const router = useRouter();
-  const { chats, setActiveChat, activeChatId } = useChat();
+
+  const chatListRef = useRef<HTMLDivElement>(null);
+  const [shadowTop, setShadowTop] = useState(false);
+
+
+  useEffect(() => {
+    fetchChatCollection()
+
+    console.log(userInfo  );
+    
+
+    const el = chatListRef.current;
+    if (!el) return;
+
+    const handleScroll = () => {
+      setShadowTop(el.scrollTop > 0);
+    };
+    el.addEventListener("scroll", handleScroll);
+    return () => el.removeEventListener("scroll", handleScroll);
+  }, [])
+
+  useEffect(() => {
+    if (!params?.chatId || collection.length === 0) return;
+
+    const match = collection.find((c) => c.chatId === params.chatId);
+    if (match) {
+      setActiveChatId(match.chatId);
+    }
+  }, [params?.chatId]);
 
   return (
     <>
@@ -106,7 +133,9 @@ export default function Sidebar({ email, profilePicUrl }: SidebarProps) {
 
         {/* Actions (always below logo, even minimized) */}
         <div className="flex flex-col mt-10 px-2 space-y-3">
-          <button className={`flex items-center ${isMinimized ? "justify-center" : ""} p-2 bg-gray-800 hover:bg-gray-700 rounded-md`}>
+          <button
+            onClick={() => router.push(`/`)}
+            className={`flex items-center ${isMinimized ? "justify-center" : ""} p-2 bg-gray-800 hover:bg-gray-700 rounded-md cursor-pointer`}>
             <PlusIcon className="w-5 h-5" />
             {!isMinimized && (
               <span className="ml-2 text-sm font-medium">New Chat</span>
@@ -130,46 +159,70 @@ export default function Sidebar({ email, profilePicUrl }: SidebarProps) {
         </div>
 
 
-
         {/* Chat list */}
         {!isMinimized && (
-          <div className="flex-1 overflow-y-auto px-2 mt-10">
+          <div
+            ref={chatListRef}
+            className={`flex-1 overflow-y-auto px-2 transition-shadow duration-200 custom-scrollbar mt-10 ${shadowTop ? "border-t border-gray-700" : ""}`}
+          >
             <p className="text-sm font-normal pl-3 mb-2 text-gray-400">Chats</p>
-            {chats.map((chat) => (
+            {collection.map((chat) => (
               <div
-                key={chat.id}
-                onClick={() => {
-                  setActiveChat(chat.id);
-                  router.push(`/c/${chat.id}`);
-                }}
-                className={`px-3 py-2 rounded-lg font-light cursor-pointer hover:bg-gray-600 text-sm ${chat.id === activeChatId ? "bg-gray-700" : ""
-                  }`}>
+                key={chat.chatId}
+                onClick={() => router.push(`/c/${chat.chatId}`)}
+                className={`px-3 py-2 rounded-lg font-light cursor-pointer hover:bg-gray-600 text-sm ${chat.chatId === params?.chatId ? "bg-gray-700" : ""
+                  }`}
+              >
                 {chat.title}
               </div>
+
             ))}
-          </div>
-        )}
+          </div >
+        )
+        }
+
 
         {/* Profile */}
-        <div className={`flex items-center p-3 px-4  rounded-lg border-t-1 border-gray-700 hover:bg-gray-700 gap-2 transition cursor-pointer justify-center ${isMinimized ? "" : "m-2"}`}>
-          {profilePicUrl ? (
-            <Image
-              src={profilePicUrl}
-              alt="Profile"
-              width={36}
-              height={36}
-              className="rounded-full"
-            />
-          ) : (
-            <div className="w-9 h-9 rounded-full bg-gray-500 flex items-center justify-center text-black font-medium text-sm">
-              {email.charAt(0).toUpperCase()}
+        <div className="relative">
+          <div
+            className={`flex items-center p-3 px-4 rounded-lg border-t border-gray-700 hover:bg-gray-700 gap-2 transition cursor-pointer ${isMinimized ? "" : "m-2"}`}
+            onClick={() => setShowProfileModal(!showProfileModal)}
+          >
+            {userInfo?.profilePicUrl ? (
+              <Image
+                src={userInfo?.profilePicUrl}
+                alt="Profile"
+                width={36}
+                height={36}
+                className="rounded-full"
+              />
+            ) : (
+              <div className="w-9 h-9 rounded-full bg-gray-500 flex items-center justify-center text-black font-medium text-sm">
+                {userInfo?.email?.charAt(0).toUpperCase()}
+              </div>
+            )}
+            {!isMinimized && <span className="ml-2 text-sm truncate">{userInfo?.name}</span>}
+          </div>
+
+          {/* Profile Modal */}
+          {showProfileModal && (
+            <div className="absolute bottom-14 left-20 w-56 bg-gray-800 rounded-lg shadow-lg border border-gray-700 z-50">
+              <div className="p-4 border-b border-gray-700">
+                <p className="text-sm text-gray-200 truncate">{userInfo?.email}</p>
+              </div>
+              <button
+                className="w-full text-left px-4 py-2 text-sm text-red-500 hover:bg-gray-700 transition rounded-b-lg cursor-pointer"
+                onClick={() => {
+                  handleLogout()
+                }}
+              >
+                Logout
+              </button>
             </div>
           )}
-          {!isMinimized && (
-            <span className="ml-2 text-sm truncate">{email}</span>
-          )}
         </div>
-      </div>
+
+      </div >
     </>
   );
 }

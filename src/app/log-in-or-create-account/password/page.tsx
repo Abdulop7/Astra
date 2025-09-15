@@ -22,22 +22,36 @@ export default function Page() {
   const router = useRouter();
 
   useEffect(() => {
-      const emailFromUrl = searchParams.get("email");
-      if (emailFromUrl) {
-        setEmail(decodeURIComponent(emailFromUrl));
-      }
-    }, [searchParams]);
+    const emailFromUrl = searchParams.get("email");
+    if (emailFromUrl) {
+      setEmail(decodeURIComponent(emailFromUrl));
+    }
+  }, [searchParams]);
 
   const handleContinue = async (e: React.FormEvent) => {
     e.preventDefault();
 
-     const user = new CognitoUser({ Username: email, Pool: pool });
+    const user = new CognitoUser({ Username: email, Pool: pool });
     const authDetails = new AuthenticationDetails({ Username: email, Password: password });
 
     user.authenticateUser(authDetails, {
       onSuccess: (session) => {
-        console.log("Logged in!", session);
-        router.push("/"); // redirect after login
+        const idToken = session.getIdToken().getJwtToken();
+        const payload = session.getIdToken().decodePayload();
+
+        const userId = payload.sub;   // Cognito UUID
+        const userEmail = payload.email;
+        const userName = payload.name; // 👈 this comes from signup
+
+        console.log("User:", userId, userEmail, userName);
+
+        // Save in DynamoDB
+        axios.post("https://3gdd3pytn2.execute-api.ap-south-2.amazonaws.com/register", {
+          userId,
+          email: userEmail,
+          name: userName,
+        });
+        window.location.href = "/"; 
       },
       onFailure: (err) => {
         alert("Login failed: " + err.message);

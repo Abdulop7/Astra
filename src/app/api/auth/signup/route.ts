@@ -4,7 +4,7 @@ import { cognitoClient } from "../../../../lib/cognitoClient"; // 👈 your conf
 
 export async function POST(req: Request) {
   try {
-    const { email, password } = await req.json();
+    const { email, password,name } = await req.json();
 
     const command = new SignUpCommand({
       ClientId: process.env.NEXT_PUBLIC_COGNITO_CLIENT_ID!, // app client id from Cognito
@@ -12,6 +12,7 @@ export async function POST(req: Request) {
       Password: password,
       UserAttributes: [
         { Name: "email", Value: email },
+        { Name: "name", Value: name }
       ],
     });
 

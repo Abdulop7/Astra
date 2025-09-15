@@ -7,22 +7,27 @@ import Link from "next/link";
 
 export default function VerifyPage() {
   const [email, setEmail] = useState("");
+  const [name, setName] = useState("");
   const [code, setCode] = useState("");
   const searchParams = useSearchParams();
   const router = useRouter();
 
   useEffect(() => {
-    const emailFromUrl = searchParams.get("email");
-    if (emailFromUrl) {
-      setEmail(decodeURIComponent(emailFromUrl));
-    }
-  }, [searchParams]);
+  const emailFromUrl = searchParams.get("email");
+  const nameFromUrl = searchParams.get("name");
+  if (emailFromUrl) {
+    setEmail(decodeURIComponent(emailFromUrl));
+    setName(decodeURIComponent(nameFromUrl));
+  }
+}, [searchParams]);
+
 
   const handleVerify = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
       const res = await axios.post("/api/auth/confirm", { email, code });
       if (res.data.success) {
+
         router.push("/log-in-or-create-account/password"); // redirect after verify
       } else {
         alert("❌ Error: " + res.data.error);

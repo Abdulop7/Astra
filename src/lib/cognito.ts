@@ -1,6 +1,6 @@
 import { AuthenticationDetails, CognitoUser, CognitoUserPool } from "amazon-cognito-identity-js";
 
-function getUserPool() {
+export function getUserPool() {
   return new CognitoUserPool({
     UserPoolId: process.env.NEXT_PUBLIC_COGNITO_USER_POOL_ID!,
     ClientId: process.env.NEXT_PUBLIC_COGNITO_CLIENT_ID!,
@@ -18,6 +18,17 @@ export function signIn(email: string, password: string) {
       onFailure: (err) => reject(err),
     });
   });
+}
+
+export function handleLogout() {
+  const pool = getUserPool();
+  const currentUser = pool.getCurrentUser();
+  if (currentUser) {
+    currentUser.signOut();
+    console.log("User logged out");
+    // Optional: redirect to login page
+    window.location.href = "/log-in-or-create-account/"; 
+  }
 }
 
 

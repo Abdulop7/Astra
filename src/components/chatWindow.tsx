@@ -2,62 +2,244 @@
 
 import { useChat } from "@/app/context/chatContext";
 import ChatHeader from "./user/header";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { PaperAirplaneIcon } from "@heroicons/react/24/outline";
 import { Search } from "lucide-react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { v4 as uuidv4 } from "uuid";
 
-export default function ChatWindow({ chatId }: { chatId?: string }) {
-    const {
-        chats,
-        activeChatId,
-        setActiveChat,
-        setChats,
-        sendMessage,
-        displayedText,
-        typingState,
-    } = useChat();
+export default function ChatWindow({ propChatId }: { propChatId: string }) {
 
     const [input, setInput] = useState("");
     const chatEndRef = useRef<HTMLDivElement>(null);
     const router = useRouter();
     const searchParams = useSearchParams();
+    const { getCurrentUserId, addChat, collection } = useChat();
+    const params = useParams();
+    const chatId = propChatId || (params?.chatId as string); // ✅ always resolve chatId
+    const hasChatBeenCreatedRef = useRef(false);
 
-    const chat = chats.find((c) => c.id === (chatId || activeChatId));
-    const messages = chat?.messages || [];
 
-    // Scroll to bottom
+    const firstSentRef = useRef(false); // 🔹 only send once
+
+    const [messages, setMessages] = useState<any[]>([]);
+    const [typingState, setTypingState] = useState<{
+        index: number;
+        text: string;
+    } | null>(null);
+
+    useEffect(() => {
+        // When chatId or collection changes, update the ref
+        const chatExists = collection.some(c => c.chatId === chatId);
+        if (chatExists) {
+            hasChatBeenCreatedRef.current = true;
+            console.log(`♻️ hasChatBeenCreatedRef set : ${hasChatBeenCreatedRef.current} from collection:`, chatId);
+        }
+    }, [chatId, collection]);
+
+
+
+    // ✅ Load chats from API when chatId changes
+    useEffect(() => {
+        if (!chatId) return;
+
+        let cancelled = false;
+
+        async function fetchChat() {
+            try {
+                console.log("📡 fetchChat called with chatId:", chatId);
+                const data = await fetch("https://f3sdxgem9h.execute-api.ap-south-2.amazonaws.com/getChats", {
+                    method: "POST",
+                    body: JSON.stringify({ chatId }),
+                });
+                const res = await data.json();
+
+                console.log("📥 fetchChat response:", res);
+
+                if (!cancelled && Array.isArray(res.messages)) {
+
+                    // Inside fetchChat
+                    if (res.title) {
+                        console.log("📝 Checking if chat exists in collection...");
+
+                        addChat((prevCollection) => {
+                            const chatExists = prevCollection.some((c) => c.chatId === chatId);
+                            console.log("   chatExists:", chatExists);
+
+                            if (!chatExists) {
+                                console.log("📌 Creating new chat in context:", { chatId, title: res.title });
+                                addChat({ chatId, title: res.title });
+                                hasChatBeenCreatedRef.current = true;
+                            } else {
+                                console.log("✅ Chat already exists, skipping addChat");
+                            }
+
+                            return prevCollection; // no changes to collection in this setter
+                        });
+                    }
+
+
+                    // Convert API format → UI format
+                    const formatted = res.messages.flatMap((msg) => {
+                        const arr = [];
+                        if (msg.userPrompt) {
+                            arr.push({ role: "user", content: msg.userPrompt });
+                        }
+                        if (msg.botResponse) {
+                            arr.push({ role: "bot", content: msg.botResponse });
+                        }
+                        return arr;
+                    });
+
+                    setMessages((prev) => {
+                        if (formatted.length === 0) return prev;
+
+                        const merged = [...prev];
+                        formatted.forEach((msg) => {
+                            const exists = merged.some(
+                                (m) => m.role === msg.role && m.content === msg.content
+                            );
+                            if (!exists) {
+                                merged.push(msg);
+                            }
+                        });
+                        return merged;
+                    });
+
+
+
+
+                    if (formatted.length === 0 && !firstSentRef.current) {
+                        const firstLine = searchParams.get("first");
+                        if (firstLine) {
+                            firstSentRef.current = true;
+                            sendMessage(chatId, firstLine);
+                            // Remove query param
+                            const newUrl = `/c/${chatId}`;
+                            window.history.replaceState({}, document.title, newUrl);
+                        }
+                    }
+                }
+            } catch (err) {
+                console.log("Failed to fetch chat", err);
+            }
+        }
+
+        fetchChat();
+        return () => { cancelled = true; };
+    }, [chatId]);
+
+    // ✅ Scroll to bottom
     useEffect(() => {
         chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-    }, [messages, displayedText]);
+    }, [messages]);
+
+    const startTypingEffect = (fullText: string, index: number) => {
+        let i = 0;
+        setTypingState({ index, text: "" });
+
+        const interval = setInterval(() => {
+            i++;
+            setTypingState({ index, text: fullText.slice(0, i) });
+            if (i >= fullText.length) {
+                clearInterval(interval);
+                setTypingState(null);
+            }
+        }, 3); // typing speed (ms per char)
+    };
+
+    // ✅ Send message logic (moved here)
+    const sendMessage = useCallback(
+        async (chatId: string, input: string) => {
+            if (!input.trim()) return;
+
+            console.log("✉️ Sending message:", input);
+
+            // Add user + placeholder bot
+            setMessages((prev) => [
+                ...prev,
+                { role: "user", content: input },
+                { role: "bot", content: "", isLoading: true },
+            ]);
+
+            // Call bot API
+            let botResponse = "No response";
+            try {
+                const res = await fetch("/api/chat", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ message: input }),
+                });
+                const data = await res.json();
+                botResponse = data.choices?.[0]?.message?.content || "No response";
+                console.log("🤖 Bot response:", botResponse);
+                setInput("");
+            } catch (err) {
+                console.error("❌ sendMessage bot API error:", err);
+                botResponse = "Error: failed to fetch response";
+            }
+
+            // Update last bot message
+            setMessages((prev) => {
+                const updated = [...prev.slice(0, -1), { role: "bot", content: botResponse }];
+                console.log("💬 Messages after bot update:", updated);
+                return updated;
+            });
+
+            // Save chat & add to context safely
+            const userData = await getCurrentUserId();
+            const userId = userData?.userId;
+            const title = !hasChatBeenCreatedRef.current ? input.slice(0, 30) : undefined;
+            await fetch("https://q5qbvbzaf2.execute-api.ap-south-2.amazonaws.com/saveChat", {
+                method: "POST",
+                body: JSON.stringify({
+                    chatId,
+                    userId,
+                    title: title,
+                    timestamp: new Date().toISOString(),
+                    userPrompt: input,
+                    botResponse,
+                }),
+            });
+            console.log("💾 Saving chat:", { chatId, userId, title });
+
+            // ✅ Add chat to context if it doesn't exist
+            if (!hasChatBeenCreatedRef.current) {
+                addChat({ chatId, title: input.slice(0, 30) }, { checkExists: true });
+                hasChatBeenCreatedRef.current = true;
+            }
+
+        },
+        [getCurrentUserId, addChat]
+    );
+
+
+    useEffect(() => {
+        if (!firstSentRef.current && chatId && messages.length === 0) {
+            const firstLine = searchParams.get("first");
+            if (firstLine) {
+                // Then call bot
+                sendMessage(chatId, firstLine);
+                firstSentRef.current = true;
+
+                // Remove query param from URL
+                const newUrl = `/c/${chatId}`;
+                window.history.replaceState({}, document.title, newUrl);
+            }
+        }
+    }, [chatId, searchParams, sendMessage, messages]);
 
     const handleSend = async () => {
         if (!input.trim()) return;
-
         if (!chatId) {
-            // Homepage flow: create empty chat shell & redirect with first message in query param
-            const newChatId = Date.now().toString();
-            const newChat = {
-                id: newChatId,
-                title: input.slice(0, 20) || "New Chat",
-                messages: [],
-            };
-            // ✅ Update context state
-            setChats((prev) => [...prev, newChat]);
-            setActiveChat(newChatId);
-
-            // ✅ Also update localStorage
-            localStorage.setItem("astra_chat_chats", JSON.stringify([...chats, newChat]));
-            localStorage.setItem("astra_chat_active", newChatId);
-
-            // Redirect and pass first message
-            router.push(`/c/${newChatId}?first=${encodeURIComponent(input)}`);
-            setInput("");
-        } else {
-            // Already in a chat → normal flow
-            await sendMessage(chatId, input);
-            setInput("");
+            const newId = uuidv4();
+            router.push(`/c/${newId}?first=${encodeURIComponent(input)}`);
+            setInput(""); // clear input
+            return; // exit, page will load ChatPageInner with first text
         }
+
+        await sendMessage(chatId, input);
+
     };
 
     return (
@@ -73,6 +255,12 @@ export default function ChatWindow({ chatId }: { chatId?: string }) {
                             placeholder="Ask Astra AI..."
                             value={input}
                             onChange={(e) => setInput(e.target.value)}
+                            onKeyDown={(e) => {
+                                    if (e.key === "Enter") {
+                                        e.preventDefault();
+                                        handleSend();
+                                    }
+                                }}
                             className="flex-1 px-3 sm:px-4 py-3 text-base sm:text-lg bg-transparent text-white placeholder-gray-400 outline-none"
                         />
                         <button
@@ -90,23 +278,26 @@ export default function ChatWindow({ chatId }: { chatId?: string }) {
                         <div className="space-y-8 w-full max-w-4xl mx-auto">
                             {messages.map((msg, idx) => {
                                 const isUser = msg.role === "user";
-                                const isTyping =
-                                    typingState?.chatId === chat?.id && typingState?.index === idx;
-                                let text = isTyping ? displayedText : msg.content;
-                                if (!text && msg.isLoading) text = "Thinking...";
+
+                                // 👇 Show typing effect if it's the active message
+                                let text = msg.content;
+                                if (typingState && typingState.index === idx) {
+                                    text = typingState.text;
+                                }
 
                                 return (
                                     <div
                                         key={idx}
-                                        className={`flex w-full ${isUser ? "justify-end" : "justify-start"}`}
+                                        className={`flex w-full ${isUser ? "justify-end" : "justify-start"
+                                            }`}
                                     >
                                         <div
                                             className={`px-4 py-3 rounded-2xl shadow-md max-w-[80%] ${isUser
-                                                    ? "bg-gradient-to-r from-indigo-600 to-purple-600 text-white"
-                                                    : "bg-gray-800 text-gray-100 border border-gray-700"
+                                                ? "bg-gradient-to-r from-indigo-600 to-purple-600 text-white"
+                                                : "bg-gray-800 text-gray-100 border border-gray-700"
                                                 }`}
                                         >
-                                            <p>{text}</p>
+                                            <p>{text || (msg.isLoading ? "Thinking..." : "")}</p>
                                         </div>
                                     </div>
                                 );
@@ -121,6 +312,12 @@ export default function ChatWindow({ chatId }: { chatId?: string }) {
                                 placeholder="Type your message..."
                                 value={input}
                                 onChange={(e) => setInput(e.target.value)}
+                                onKeyDown={(e) => {
+                                    if (e.key === "Enter") {
+                                        e.preventDefault();
+                                        handleSend();
+                                    }
+                                }}
                                 className="flex-1 bg-transparent text-white placeholder-gray-400 focus:outline-none text-sm sm:text-base"
                             />
                             <button
