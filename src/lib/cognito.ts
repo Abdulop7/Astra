@@ -1,4 +1,4 @@
-import { AuthenticationDetails, CognitoUser, CognitoUserPool } from "amazon-cognito-identity-js";
+import { AuthenticationDetails, CognitoUser, CognitoUserPool, CognitoUserSession } from "amazon-cognito-identity-js";
 
 export function getUserPool() {
   return new CognitoUserPool({
@@ -48,7 +48,7 @@ export async function isSignedIn(): Promise<boolean> {
 
   return new Promise((resolve) => {
     // getSession is async and ensures the session is valid
-    user.getSession((err, session) => {
+    user.getSession((err: Error | null, session: CognitoUserSession | null)=> {
       if (err) {
         console.log("Session error:", err);
         resolve(false);

@@ -5,7 +5,6 @@ import { FcGoogle } from "react-icons/fc";
 import { FaFacebook } from "react-icons/fa";
 import { FaEye, FaEyeSlash } from "react-icons/fa";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
 import axios from "axios";
 import { AuthenticationDetails, CognitoUser, CognitoUserPool } from "amazon-cognito-identity-js";
 
@@ -17,16 +16,14 @@ const pool = new CognitoUserPool({
 export default function Page() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const searchParams = useSearchParams();
   const [showPassword, setShowPassword] = useState(false);
-  const router = useRouter();
 
   useEffect(() => {
-    const emailFromUrl = searchParams.get("email");
-    if (emailFromUrl) {
-      setEmail(decodeURIComponent(emailFromUrl));
-    }
-  }, [searchParams]);
+  const url = new URL(window.location.href);
+  const emailFromUrl = url.searchParams.get("email");
+  if (emailFromUrl) setEmail(decodeURIComponent(emailFromUrl));
+}, []);
+
 
   const handleContinue = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -36,7 +33,6 @@ export default function Page() {
 
     user.authenticateUser(authDetails, {
       onSuccess: (session) => {
-        const idToken = session.getIdToken().getJwtToken();
         const payload = session.getIdToken().decodePayload();
 
         const userId = payload.sub;   // Cognito UUID

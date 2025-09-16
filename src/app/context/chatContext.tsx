@@ -1,17 +1,30 @@
 // app/context/chatContext.tsx
 "use client";
 import { getUserPool } from "@/lib/cognito";
+import { CognitoUser, CognitoUserSession } from "amazon-cognito-identity-js";
 import { createContext, useContext, useState, useCallback, useEffect } from "react";
 
 interface CognitoUserInfo {
   userId: string; // sub
   name?: string;
   email?: string;
+  profilePicUrl?:string ;
 }
 
 type ChatCollection = { chatId: string; title: string };
 
-const ChatContext = createContext<any>(null);
+interface ChatContextType {
+  collection: ChatCollection[];
+  fetchChatCollection: () => Promise<void>;
+  getCurrentUserId: () => Promise<CognitoUserInfo | null>;
+  addChat: (newChat: ChatCollection, options?: { checkExists?: boolean }) => boolean;
+  markChatAsCreated: (chatId: string) => void;
+  isChatCreated: (chatId: string) => boolean;
+  userInfo: CognitoUserInfo | null;
+}
+
+
+const ChatContext = createContext<ChatContextType | null>(null);
 
 export function ChatProvider({ children }: { children: React.ReactNode }) {
   const pool = getUserPool();
@@ -21,30 +34,36 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   const [userInfo, setUserInfo] = useState<CognitoUserInfo | null>(null);
   
 
-  function getCurrentUserId(): Promise<CognitoUserInfo | null> {
-    return new Promise((resolve) => {
-      const currentUser = pool.getCurrentUser();
+  
+const getCurrentUserId = useCallback((): Promise<CognitoUserInfo | null> => {
+  return new Promise((resolve) => {
+    const currentUser: CognitoUser | null = pool.getCurrentUser();
 
-      if (!currentUser) {
+    if (!currentUser) {
+      resolve(null);
+      return;
+    }
+
+    currentUser.getSession((err: Error | null, session: CognitoUserSession | null) => {
+      if (err || !session || !session.isValid()) {
         resolve(null);
         return;
       }
 
-      currentUser.getSession((err: any, session: any) => {
-        if (err || !session.isValid()) {
-          resolve(null);
-          return;
-        }
+      const payload = session.getIdToken().decodePayload() as {
+        sub: string;
+        name?: string;
+        email?: string;
+      };
 
-        const payload = session.getIdToken().decodePayload();
-        resolve({
-          userId: payload.sub,
-          name: payload.name,    // if available
-          email: payload.email,  // usually available if you set it in the pool
-        });
+      resolve({
+        userId: payload.sub,
+        name: payload.name,
+        email: payload.email,
       });
     });
-  }
+  });
+}, []); // ✅ stable dependency
 
   useEffect(() => {
     getCurrentUserId().then((info) => {
@@ -77,7 +96,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         prev.forEach((chat) => map.set(chat.chatId, chat));
 
         // Add new chats, preserve existing title if incoming one is undefined
-        chats.forEach((chat) => {
+        chats.forEach((chat: { chatId: string; title?: string }) => {
           const existing = map.get(chat.chatId);
           const title = chat.title || existing?.title || "Untitled Chat";
           map.set(chat.chatId, { chatId: chat.chatId, title });

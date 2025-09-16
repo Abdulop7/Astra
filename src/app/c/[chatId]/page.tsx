@@ -18,14 +18,13 @@ function ChatPageInner({ chatId }: { chatId: string }) {
   useEffect(() => {
     if (!chatId) return;
 
-    // ✅ empty deps, runs only once
-  }, []);
+  }, [chatId]);
 
 
   return (
     <div className="flex w-full h-screen">
-      <Sidebar email="abdulsaboora691@gmail.com" />
-      <ChatWindow chatId={currentChatId} />
+      <Sidebar />
+      <ChatWindow propChatId={currentChatId} />
     </div>
   );
 }

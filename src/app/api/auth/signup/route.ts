@@ -19,8 +19,7 @@ export async function POST(req: Request) {
     const response = await cognitoClient.send(command);
 
     return NextResponse.json({ success: true, data: response });
-  } catch (error: any) {
-    console.log(error.message);
-    return NextResponse.json({ success: false, error: error.message }, { status: 400 });
+  } catch (error: unknown) {
+    if(error instanceof Error) return NextResponse.json({ success: false, error: error.message }, { status: 400 });
   }
 }

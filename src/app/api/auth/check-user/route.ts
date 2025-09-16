@@ -14,15 +14,13 @@ export async function POST(req: NextRequest) {
     try {
       await cognitoClient.send(command);
       return NextResponse.json({ exists: true });
-    } catch (err: any) {
-      if (err.name === "UserNotFoundException") {
+    } catch (err: unknown) {
+      if (err instanceof Error && err.name === "UserNotFoundException") {
         return NextResponse.json({ exists: false });
       }
-      console.log(err.message);
-      
-      return NextResponse.json({ error: err.message }, { status: 400 });
+      if(err instanceof Error) return NextResponse.json({ error: err.message }, { status: 400 });
     }
-  } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
+  } catch (err:unknown) {
+    if(err instanceof Error) return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }

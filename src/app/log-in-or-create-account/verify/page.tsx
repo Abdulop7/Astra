@@ -2,24 +2,21 @@
 
 import React, { useEffect, useState } from "react";
 import axios from "axios";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 
 export default function VerifyPage() {
   const [email, setEmail] = useState("");
-  const [name, setName] = useState("");
+  // const [name, setName] = useState("");
   const [code, setCode] = useState("");
-  const searchParams = useSearchParams();
   const router = useRouter();
 
   useEffect(() => {
-  const emailFromUrl = searchParams.get("email");
-  const nameFromUrl = searchParams.get("name");
-  if (emailFromUrl) {
-    setEmail(decodeURIComponent(emailFromUrl));
-    setName(decodeURIComponent(nameFromUrl));
-  }
-}, [searchParams]);
+  const url = new URL(window.location.href);
+  const emailFromUrl = url.searchParams.get("email");
+  if (emailFromUrl) setEmail(decodeURIComponent(emailFromUrl));
+}, []);
+
 
 
   const handleVerify = async (e: React.FormEvent) => {
@@ -32,8 +29,9 @@ export default function VerifyPage() {
       } else {
         alert("❌ Error: " + res.data.error);
       }
-    } catch (err: any) {
-      alert("Verification failed: " + err.message);
+    } catch (err: unknown) {
+      if (err instanceof Error)
+        alert("Verification failed: " + err.message);
     }
   };
 
@@ -58,13 +56,13 @@ export default function VerifyPage() {
           onSubmit={handleVerify}
           className="w-full max-w-md flex flex-col gap-4"
         >
-{/* Display email (readonly, styled as info box) */}
-<div className="w-full">
-  <p className="text-xs uppercase tracking-wide text-gray-500 mb-1">Account Email</p>
-  <div className="px-4 py-3 rounded-lg bg-gradient-to-r from-gray-900 to-gray-800 border border-indigo-500/40 text-indigo-200 font-semibold shadow-md">
-    {email || "your@email.com"}
-  </div>
-</div>
+          {/* Display email (readonly, styled as info box) */}
+          <div className="w-full">
+            <p className="text-xs uppercase tracking-wide text-gray-500 mb-1">Account Email</p>
+            <div className="px-4 py-3 rounded-lg bg-gradient-to-r from-gray-900 to-gray-800 border border-indigo-500/40 text-indigo-200 font-semibold shadow-md">
+              {email || "your@email.com"}
+            </div>
+          </div>
 
 
 

@@ -23,8 +23,8 @@ export default function Page() {
         // New user → redirect to signup page with email
         router.push(`/log-in-or-create-account/create?email=${encodeURIComponent(email)}`);
       }
-    } catch (error: any) {
-      console.error("Error checking user:", error.response?.data || error.message);
+    } catch (error: unknown) {
+      if(error instanceof Error) console.error("Error checking user:", error.message);
     }
   };
 

@@ -3,23 +3,21 @@
 import React, { useEffect, useState } from "react";
 import { FaEye, FaEyeSlash } from "react-icons/fa";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import axios from "axios";
 
 export default function Page() {
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
-  const searchParams = useSearchParams();
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const router = useRouter();
 
   useEffect(() => {
-    const emailFromUrl = searchParams.get("email");
-    if (emailFromUrl) {
-      setEmail(decodeURIComponent(emailFromUrl));
-    }
-  }, [searchParams]);
+  const url = new URL(window.location.href);
+  const emailFromUrl = url.searchParams.get("email");
+  if (emailFromUrl) setEmail(decodeURIComponent(emailFromUrl));
+}, []);
 
   const handleContinue = async (e: React.FormEvent) => {
   e.preventDefault();
@@ -38,8 +36,8 @@ export default function Page() {
     } else {
       alert("Error: " + res.data.error);
     }
-  } catch (err: any) {
-    alert("Signup failed: " + err.message);
+  } catch (err: unknown) {
+    if(err instanceof Error) alert("Signup failed: " + err.message);
   }
 };
 

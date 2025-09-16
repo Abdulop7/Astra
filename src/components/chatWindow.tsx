@@ -8,13 +8,42 @@ import { Search } from "lucide-react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { v4 as uuidv4 } from "uuid";
 
-export default function ChatWindow({ propChatId }: { propChatId: string }) {
+interface Message {
+    role: "user" | "bot";
+    content: string;
+    isLoading?: boolean;
+}
+type ChatCollection = { chatId: string; title: string };
+
+type Chat = {
+    chatId: string;
+    title: string;
+};
+
+interface ApiMessage {
+    userPrompt?: string;
+    botResponse?: string;
+}
+export interface ChatContextType {
+    collection: Chat[];   // ✅ add this line
+    addChat: (
+        chat: Chat | ((prevCollection: Chat[]) => Chat[])
+    ) => void;
+    getCurrentUserId: () => Promise<{ userId: string; name?: string; email?: string } | null>;
+}
+
+
+export default function ChatWindow({ propChatId }: { propChatId: string | null }) {
 
     const [input, setInput] = useState("");
     const chatEndRef = useRef<HTMLDivElement>(null);
     const router = useRouter();
     const searchParams = useSearchParams();
-    const { getCurrentUserId, addChat, collection } = useChat();
+    const chatContext = useChat();
+    if (!chatContext) {
+        throw new Error("useChat must be used within a ChatProvider");
+    }
+    const { getCurrentUserId, addChat, collection } = chatContext;
     const params = useParams();
     const chatId = propChatId || (params?.chatId as string); // ✅ always resolve chatId
     const hasChatBeenCreatedRef = useRef(false);
@@ -22,15 +51,21 @@ export default function ChatWindow({ propChatId }: { propChatId: string }) {
 
     const firstSentRef = useRef(false); // 🔹 only send once
 
-    const [messages, setMessages] = useState<any[]>([]);
+    const [messages, setMessages] = useState<Message[]>([]);
     const [typingState, setTypingState] = useState<{
         index: number;
         text: string;
     } | null>(null);
 
+    // ✅ Scroll to bottom
+    useEffect(() => {
+        chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }, [messages]);
+
+
     useEffect(() => {
         // When chatId or collection changes, update the ref
-        const chatExists = collection.some(c => c.chatId === chatId);
+        const chatExists = collection.some((c: ChatCollection) => c.chatId === chatId);
         if (chatExists) {
             hasChatBeenCreatedRef.current = true;
             console.log(`♻️ hasChatBeenCreatedRef set : ${hasChatBeenCreatedRef.current} from collection:`, chatId);
@@ -62,26 +97,23 @@ export default function ChatWindow({ propChatId }: { propChatId: string }) {
                     if (res.title) {
                         console.log("📝 Checking if chat exists in collection...");
 
-                        addChat((prevCollection) => {
-                            const chatExists = prevCollection.some((c) => c.chatId === chatId);
-                            console.log("   chatExists:", chatExists);
+                        const chatExists = collection.some((c: Chat) => c.chatId === chatId);
+                        console.log("   chatExists:", chatExists);
 
-                            if (!chatExists) {
-                                console.log("📌 Creating new chat in context:", { chatId, title: res.title });
-                                addChat({ chatId, title: res.title });
-                                hasChatBeenCreatedRef.current = true;
-                            } else {
-                                console.log("✅ Chat already exists, skipping addChat");
-                            }
-
-                            return prevCollection; // no changes to collection in this setter
-                        });
+                        if (!chatExists) {
+                            console.log("📌 Creating new chat in context:", { chatId, title: res.title });
+                            addChat({ chatId, title: res.title }); // ✅ Pass object directly
+                            hasChatBeenCreatedRef.current = true;
+                        } else {
+                            console.log("✅ Chat already exists, skipping addChat");
+                        }
                     }
 
 
+
                     // Convert API format → UI format
-                    const formatted = res.messages.flatMap((msg) => {
-                        const arr = [];
+                    const formatted: Message[] = (res.messages as ApiMessage[]).flatMap((msg: ApiMessage) => {
+                        const arr: Message[] = [];
                         if (msg.userPrompt) {
                             arr.push({ role: "user", content: msg.userPrompt });
                         }
@@ -95,7 +127,7 @@ export default function ChatWindow({ propChatId }: { propChatId: string }) {
                         if (formatted.length === 0) return prev;
 
                         const merged = [...prev];
-                        formatted.forEach((msg) => {
+                        formatted.forEach((msg: Message) => {
                             const exists = merged.some(
                                 (m) => m.role === msg.role && m.content === msg.content
                             );
@@ -110,6 +142,7 @@ export default function ChatWindow({ propChatId }: { propChatId: string }) {
 
 
                     if (formatted.length === 0 && !firstSentRef.current) {
+                        if (!searchParams) return;
                         const firstLine = searchParams.get("first");
                         if (firstLine) {
                             firstSentRef.current = true;
@@ -127,26 +160,10 @@ export default function ChatWindow({ propChatId }: { propChatId: string }) {
 
         fetchChat();
         return () => { cancelled = true; };
-    }, [chatId]);
+    }, [chatId, addChat]);
 
-    // ✅ Scroll to bottom
-    useEffect(() => {
-        chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-    }, [messages]);
 
-    const startTypingEffect = (fullText: string, index: number) => {
-        let i = 0;
-        setTypingState({ index, text: "" });
 
-        const interval = setInterval(() => {
-            i++;
-            setTypingState({ index, text: fullText.slice(0, i) });
-            if (i >= fullText.length) {
-                clearInterval(interval);
-                setTypingState(null);
-            }
-        }, 3); // typing speed (ms per char)
-    };
 
     // ✅ Send message logic (moved here)
     const sendMessage = useCallback(
@@ -181,10 +198,32 @@ export default function ChatWindow({ propChatId }: { propChatId: string }) {
 
             // Update last bot message
             setMessages((prev) => {
-                const updated = [...prev.slice(0, -1), { role: "bot", content: botResponse }];
+                const botIndex = prev.length - 1;
+                const updated: Message[] = [
+                    ...prev.slice(0, -1),
+                    { role: "bot" as const, content: botResponse }
+                ];
                 console.log("💬 Messages after bot update:", updated);
+
+                let i = 0;
+                const interval = setInterval(() => {
+                    i++;
+                    if (i <= botResponse.length) {
+                        setTypingState({ index: botIndex, text: botResponse.slice(0, i) });
+                    } else {
+                        clearInterval(interval);
+                        setTypingState(null);
+                        setMessages((finalPrev) => {
+                            const finalUpdated = [...finalPrev];
+                            finalUpdated[botIndex] = { role: "bot" as const, content: botResponse };
+                            return finalUpdated;
+                        });
+                    }
+                }, 5);
+
                 return updated;
             });
+
 
             // Save chat & add to context safely
             const userData = await getCurrentUserId();
@@ -215,6 +254,7 @@ export default function ChatWindow({ propChatId }: { propChatId: string }) {
 
 
     useEffect(() => {
+        if (!searchParams) return;
         if (!firstSentRef.current && chatId && messages.length === 0) {
             const firstLine = searchParams.get("first");
             if (firstLine) {
@@ -247,7 +287,7 @@ export default function ChatWindow({ propChatId }: { propChatId: string }) {
             {messages.length === 0 ? (
                 <div className="flex flex-col w-full h-screen items-center justify-center flex-1">
                     <h2 className="text-xl sm:text-3xl font-medium text-gray-300 mb-10 mt-20">
-                        What's the agenda today?
+                        {"What's the agenda today?"}
                     </h2>
                     <div className="flex w-11/12 sm:w-full max-w-lg items-center bg-gray-800 rounded-2xl shadow-lg overflow-hidden border border-gray-700 p-1">
                         <input
@@ -256,11 +296,11 @@ export default function ChatWindow({ propChatId }: { propChatId: string }) {
                             value={input}
                             onChange={(e) => setInput(e.target.value)}
                             onKeyDown={(e) => {
-                                    if (e.key === "Enter") {
-                                        e.preventDefault();
-                                        handleSend();
-                                    }
-                                }}
+                                if (e.key === "Enter") {
+                                    e.preventDefault();
+                                    handleSend();
+                                }
+                            }}
                             className="flex-1 px-3 sm:px-4 py-3 text-base sm:text-lg bg-transparent text-white placeholder-gray-400 outline-none"
                         />
                         <button

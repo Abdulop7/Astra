@@ -20,8 +20,11 @@ export default function Sidebar() {
   const [isOpen, setIsOpen] = useState(false); // mobile
   const [isMinimized, setIsMinimized] = useState(false); // desktop
   const [hoveringLogo, setHoveringLogo] = useState(false);
-  const { collection,userInfo, fetchChatCollection } = useChat();
-  const [activeChatId, setActiveChatId] = useState()
+  const chatContext = useChat();
+    if (!chatContext) {
+        throw new Error("useChat must be used within a ChatProvider");
+    }
+  const {collection,userInfo, fetchChatCollection} = chatContext;
   const [showProfileModal, setShowProfileModal] = useState(false);
   const params = useParams();
   const router = useRouter();
@@ -46,14 +49,6 @@ export default function Sidebar() {
     return () => el.removeEventListener("scroll", handleScroll);
   }, [])
 
-  useEffect(() => {
-    if (!params?.chatId || collection.length === 0) return;
-
-    const match = collection.find((c) => c.chatId === params.chatId);
-    if (match) {
-      setActiveChatId(match.chatId);
-    }
-  }, [params?.chatId]);
 
   return (
     <>
