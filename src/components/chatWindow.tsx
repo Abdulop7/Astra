@@ -7,6 +7,7 @@ import { PaperAirplaneIcon } from "@heroicons/react/24/outline";
 import { Search } from "lucide-react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { v4 as uuidv4 } from "uuid";
+import Loading from "@/app/loading";
 
 interface Message {
     role: "user" | "bot";
@@ -52,6 +53,7 @@ export default function ChatWindow({ propChatId }: { propChatId: string | null }
     const firstSentRef = useRef(false); // 🔹 only send once
 
     const [messages, setMessages] = useState<Message[]>([]);
+    const [loading, setLoading] = useState(true);
     const [typingState, setTypingState] = useState<{
         index: number;
         text: string;
@@ -70,6 +72,7 @@ export default function ChatWindow({ propChatId }: { propChatId: string | null }
             hasChatBeenCreatedRef.current = true;
             console.log(`♻️ hasChatBeenCreatedRef set : ${hasChatBeenCreatedRef.current} from collection:`, chatId);
         }
+        setLoading(false);
     }, [chatId, collection]);
 
 
@@ -82,6 +85,7 @@ export default function ChatWindow({ propChatId }: { propChatId: string | null }
 
         async function fetchChat() {
             try {
+                setLoading(true); // 👈 start loader
                 console.log("📡 fetchChat called with chatId:", chatId);
                 const data = await fetch("https://f3sdxgem9h.execute-api.ap-south-2.amazonaws.com/getChats", {
                     method: "POST",
@@ -139,8 +143,6 @@ export default function ChatWindow({ propChatId }: { propChatId: string | null }
                     });
 
 
-
-
                     if (formatted.length === 0 && !firstSentRef.current) {
                         if (!searchParams) return;
                         const firstLine = searchParams.get("first");
@@ -153,8 +155,11 @@ export default function ChatWindow({ propChatId }: { propChatId: string | null }
                         }
                     }
                 }
+                setLoading(false); // 👈 stop loader
+
             } catch (err) {
                 console.log("Failed to fetch chat", err);
+                setLoading(false); // 👈 stop loader
             }
         }
 
@@ -281,6 +286,10 @@ export default function ChatWindow({ propChatId }: { propChatId: string | null }
         await sendMessage(chatId, input);
 
     };
+
+    if (loading) {
+        return <Loading />; // 👈 shows loading.tsx until chat finishes loading
+    }
 
     return (
         <div className="flex flex-col w-full h-full bg-gray-1000">
